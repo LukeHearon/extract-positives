@@ -182,6 +182,8 @@ def extract_positives(
     results_dir: str,
     output_dir: str,
     cfg: Config,
+    audio_is_file: bool = False,
+    results_is_file: bool = False,
 ) -> None:
     """
     Extract detections within a time window and write audio clips.
@@ -200,8 +202,8 @@ def extract_positives(
     audio_path = Path(audio_dir)
     out_root = Path(output_dir)
 
-    if results_path.is_file():
-        _extract_from_ident_csv(results_path, audio_path, out_root, cfg)
+    if results_is_file:
+        _extract_from_ident_csv(results_path, audio_path, out_root, cfg, audio_is_file)
     else:
         _extract_from_folder(results_path, audio_path, out_root, cfg)
 
@@ -258,8 +260,9 @@ def _extract_from_ident_csv(
     audio_path: Path,
     out_root: Path,
     cfg: Config,
+    audio_is_file: bool = False,
 ) -> None:
-    if audio_path.is_file():
+    if audio_is_file:
         _extract_single_audio_from_csv(csv_file, audio_path, out_root, cfg)
         return
 

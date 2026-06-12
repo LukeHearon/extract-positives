@@ -125,6 +125,30 @@ class App(tk.Tk):
         except OSError:
             pass
 
+    def _save_run_config(self) -> None:
+        output_dir = Path(self._output_dir.get().strip())
+        try:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            lines = [
+                f"audio:     {self._audio_dir.get().strip()}",
+                f"results:   {self._results_dir.get().strip()}",
+                f"output:    {self._output_dir.get().strip()}",
+                f"threshold: {self._threshold.get()}",
+                f"buffer:    {self._buffer.get()}",
+                f"deadtime:  {self._deadtime.get()}",
+                f"join_mode: {self._join_mode.get()}",
+                f"format:    {self._output_format.get()}",
+            ]
+            if self._filter_time.get():
+                lines.append(f"time:      {self._time_from.get()} – {self._time_to.get()}")
+            if self._filter_date.get():
+                lines.append(f"date:      {self._date_filter.get()}")
+            if self._limit_frames.get():
+                lines.append(f"frames:    {self._frame_select.get()} {self._frame_n.get()}")
+            (output_dir / "config.txt").write_text("\n".join(lines) + "\n")
+        except OSError:
+            pass
+
     def _load_cache(self) -> None:
         try:
             data = json.loads(_CACHE_PATH.read_text())
@@ -471,6 +495,7 @@ class App(tk.Tk):
             return
 
         self._save_cache()
+        self._save_run_config()
         self._run_btn.configure(state="disabled")
         self._clear_log()
 
@@ -479,9 +504,11 @@ class App(tk.Tk):
             sys.stdout = _LogStream(self._log)
             try:
                 extract_positives(
-                    audio_dir=self._audio_dir.get(),
-                    results_dir=self._results_dir.get(),
-                    output_dir=self._output_dir.get(),
+                    audio_dir=self._audio_dir.get().strip(),
+                    results_dir=self._results_dir.get().strip(),
+                    output_dir=self._output_dir.get().strip(),
+                    audio_is_file=self._audio_mode.get() == "file",
+                    results_is_file=self._results_mode.get() == "file",
                     cfg=Config(
                         threshold=threshold,
                         buffer=buffer,
