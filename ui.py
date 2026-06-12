@@ -6,9 +6,58 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 from datetime import date, time
 from pathlib import Path
 
+from arguments import HINTS
 from extract_positives import Config, extract_positives
 
 _CACHE_PATH = Path.home() / ".extract_positives_last_run.json"
+
+
+# ── tooltips ───────────────────────────────────────────────────────────────────
+
+class _Tooltip:
+    """A small hover popup bound to a widget."""
+
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self._widget = widget
+        self._text = text
+        self._tip: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, _event=None) -> None:
+        if self._tip is not None:
+            return
+        x = self._widget.winfo_rootx() + 16
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 2
+        self._tip = tk.Toplevel(self._widget)
+        self._tip.wm_overrideredirect(True)
+        self._tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(
+            self._tip, text=self._text, justify="left", wraplength=340,
+            background="#ffffe0", relief="solid", borderwidth=1,
+            font=("TkDefaultFont", 11), padx=6, pady=4,
+        ).pack()
+
+    def _hide(self, _event=None) -> None:
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
+
+
+def _hint(parent, key: str):
+    """A circular '?' badge that shows HINTS[key] on hover; returns it (unpacked)."""
+    size = 18
+    try:
+        bg = parent.cget("background")
+    except tk.TclError:
+        bg = None
+    c = tk.Canvas(parent, width=size, height=size, highlightthickness=0,
+                  borderwidth=0, background=bg)
+    c.create_oval(1, 1, size - 1, size - 1, fill="#d0d0d0", outline="#a0a0a0")
+    c.create_text(size / 2, size / 2 + 1, text="?",
+                  font=("TkDefaultFont", 10, "bold"), fill="#404040")
+    _Tooltip(c, HINTS[key])
+    return c
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -80,6 +129,7 @@ class App(tk.Tk):
         self._results_mode = tk.StringVar(value="folder")
         self._output_dir   = tk.StringVar()
         self._output_is_file = False
+        self._syncing_fmt    = False
         self._threshold  = tk.StringVar(value="-1.2")
         self._filter_time = tk.BooleanVar(value=False)
         self._time_from   = tk.StringVar(value="22:00")
@@ -126,9 +176,10 @@ class App(tk.Tk):
             pass
 
     def _save_run_config(self) -> None:
-        output_dir = Path(self._output_dir.get().strip())
+        out = Path(self._output_dir.get().strip())
+        config_dir = out.parent if self._output_is_file else out
         try:
-            output_dir.mkdir(parents=True, exist_ok=True)
+            config_dir.mkdir(parents=True, exist_ok=True)
             lines = [
                 f"audio:     {self._audio_dir.get().strip()}",
                 f"results:   {self._results_dir.get().strip()}",
@@ -145,7 +196,7 @@ class App(tk.Tk):
                 lines.append(f"date:      {self._date_filter.get()}")
             if self._limit_frames.get():
                 lines.append(f"frames:    {self._frame_select.get()} {self._frame_n.get()}")
-            (output_dir / "config.txt").write_text("\n".join(lines) + "\n")
+            (config_dir / "config.txt").write_text("\n".join(lines) + "\n")
         except OSError:
             pass
 
@@ -221,22 +272,24 @@ class App(tk.Tk):
         params = ttk.Frame(f)
         params.grid(row=4, column=0, columnspan=3, sticky="w")
 
-        def param(label, var, col):
-            ttk.Label(params, text=label).grid(row=0, column=col * 2, sticky="w", **pad)
-            ttk.Entry(params, textvariable=var, width=8).grid(
-                row=0, column=col * 2 + 1, **pad
-            )
+        def param(label, var, key, col):
+            cell = ttk.Frame(params)
+            cell.grid(row=0, column=col, sticky="w", **pad)
+            ttk.Label(cell, text=label).pack(side="left")
+            ttk.Entry(cell, textvariable=var, width=8).pack(side="left", padx=(4, 2))
+            _hint(cell, key).pack(side="left")
 
-        param("Threshold",     self._threshold, 0)
-        param("Buffer (s)",    self._buffer,    1)
-        param("Dead time (s)", self._deadtime,  2)
+        param("Threshold",     self._threshold, "threshold", 0)
+        param("Buffer (s)",    self._buffer,    "buffer",    1)
+        param("Dead time (s)", self._deadtime,  "deadtime",  2)
 
         time_frame = ttk.Frame(f)
         time_frame.grid(row=5, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 4))
 
         ttk.Checkbutton(
             time_frame, text="Filter by time", variable=self._filter_time
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 4))
+        _hint(time_frame, "time_from").pack(side="left", padx=(0, 10))
 
         ttk.Label(time_frame, text="From").pack(side="left")
         self._time_from_entry = ttk.Entry(time_frame, textvariable=self._time_from, width=8)
@@ -259,7 +312,8 @@ class App(tk.Tk):
 
         ttk.Checkbutton(
             date_frame, text="Filter by date", variable=self._filter_date
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 4))
+        _hint(date_frame, "date_filter").pack(side="left", padx=(0, 10))
 
         ttk.Label(date_frame, text="Date (YYYY-MM-DD)").pack(side="left")
         self._date_filter_entry = ttk.Entry(date_frame, textvariable=self._date_filter, width=12)
@@ -277,7 +331,8 @@ class App(tk.Tk):
 
         ttk.Checkbutton(
             frame_limit_frame, text="Limit frames", variable=self._limit_frames
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 4))
+        _hint(frame_limit_frame, "frame_n").pack(side="left", padx=(0, 10))
 
         ttk.Label(frame_limit_frame, text="N").pack(side="left")
         self._frame_n_entry = ttk.Entry(frame_limit_frame, textvariable=self._frame_n, width=6)
@@ -307,7 +362,8 @@ class App(tk.Tk):
 
         join_frame = ttk.Frame(f)
         join_frame.grid(row=9, column=0, columnspan=3, pady=(0, 6))
-        ttk.Label(join_frame, text="Join output:").pack(side="left", padx=(0, 10))
+        ttk.Label(join_frame, text="Join output:").pack(side="left", padx=(0, 4))
+        _hint(join_frame, "join_mode").pack(side="left", padx=(0, 10))
         self._join_btns: list[ttk.Radiobutton] = []
         for label, value in [("By file", "file"), ("By recorder", "recorder"), ("Join all", "all")]:
             btn = ttk.Radiobutton(
@@ -316,19 +372,36 @@ class App(tk.Tk):
             btn.pack(side="left", padx=6)
             self._join_btns.append(btn)
 
+        def _sync_output_target(*_):
+            """Output is a single file when joining all, else a folder."""
+            is_file = self._join_mode.get() == "all"
+            was_file = self._output_is_file
+            self._output_is_file = is_file
+            self._output_label.configure(
+                text="Output file" if is_file else "Output folder"
+            )
+            if is_file == was_file:
+                return
+            cur = self._output_dir.get().strip()
+            if not cur:
+                return
+            p = Path(cur)
+            has_ext = p.suffix.lstrip(".").lower() in self._VALID_EXTS
+            if is_file and not has_ext:
+                self._output_dir.set(str(p.with_suffix(f".{self._output_format.get()}")))
+            elif not is_file and has_ext:
+                self._output_dir.set(str(p.with_suffix("")))
+
+        self._join_mode.trace_add("write", _sync_output_target)
+
         def _sync_audio_file_mode(*_):
             is_single = self._audio_mode.get() == "file"
             join_state = "disabled" if is_single else "normal"
             for btn in self._join_btns:
                 btn.configure(state=join_state)
             if is_single:
-                self._join_mode.set("all")
+                self._join_mode.set("all")  # forces output to a single file
                 self._results_mode.set("file")
-                self._output_label.configure(text="Output file")
-                self._output_is_file = True
-            else:
-                self._output_label.configure(text="Output folder")
-                self._output_is_file = False
             for btn in self._results_mode_btns:
                 btn.configure(state="disabled" if is_single else "normal")
 
@@ -336,11 +409,15 @@ class App(tk.Tk):
 
         fmt_frame = ttk.Frame(f)
         fmt_frame.grid(row=10, column=0, columnspan=3, pady=(0, 6))
-        ttk.Label(fmt_frame, text="Output format:").pack(side="left", padx=(0, 10))
+        ttk.Label(fmt_frame, text="Output format:").pack(side="left", padx=(0, 4))
+        _hint(fmt_frame, "output_format").pack(side="left", padx=(0, 10))
         for label, value in [("FLAC", "flac"), ("MP3", "mp3"), ("WAV", "wav")]:
             ttk.Radiobutton(
                 fmt_frame, text=label, variable=self._output_format, value=value
             ).pack(side="left", padx=6)
+
+        self._output_dir.trace_add("write", self._sync_format_from_path)
+        self._output_format.trace_add("write", self._sync_path_from_format)
 
         self._run_btn = ttk.Button(f, text="Run", command=self._run)
         self._run_btn.grid(row=11, column=0, columnspan=3, pady=(0, 8))
@@ -386,6 +463,8 @@ class App(tk.Tk):
             toggle_frame, text="File", variable=self._audio_mode, value="file"
         ).pack(side="left")
 
+        _hint(parent, "audio").grid(row=row, column=3, sticky="w", **pad)
+
     def _results_row(self, parent, row: int) -> None:
         pad = {"padx": 4, "pady": 3}
         ttk.Label(parent, text="Results", width=16, anchor="w").grid(
@@ -422,6 +501,8 @@ class App(tk.Tk):
             rb.pack(side="left")
             self._results_mode_btns.append(rb)
 
+        _hint(parent, "results").grid(row=row, column=3, sticky="w", **pad)
+
     def _output_row(self, parent, row: int) -> None:
         pad = {"padx": 4, "pady": 3}
         self._output_label = ttk.Label(parent, text="Output folder", width=16, anchor="w")
@@ -448,6 +529,35 @@ class App(tk.Tk):
             row=row, column=2, **pad
         )
 
+        _hint(parent, "output").grid(row=row, column=3, sticky="w", **pad)
+
+    # ── output format ↔ path sync ──────────────────────────────────────────────
+
+    _VALID_EXTS = ("flac", "mp3", "wav")
+
+    def _sync_format_from_path(self, *_) -> None:
+        """When the output file gets a valid extension, update the format radial."""
+        if self._syncing_fmt or not self._output_is_file:
+            return
+        ext = Path(self._output_dir.get().strip()).suffix.lstrip(".").lower()
+        if ext in self._VALID_EXTS and ext != self._output_format.get():
+            self._syncing_fmt = True
+            self._output_format.set(ext)
+            self._syncing_fmt = False
+
+    def _sync_path_from_format(self, *_) -> None:
+        """When the format radial changes, update the output file's extension."""
+        if self._syncing_fmt or not self._output_is_file:
+            return
+        cur = self._output_dir.get().strip()
+        if not cur:
+            return
+        new = str(Path(cur).with_suffix(f".{self._output_format.get()}"))
+        if new != cur:
+            self._syncing_fmt = True
+            self._output_dir.set(new)
+            self._syncing_fmt = False
+
     # ── run ──────────────────────────────────────────────────────────────────
 
     def _run(self) -> None:
@@ -459,7 +569,7 @@ class App(tk.Tk):
             label = "Results file" if self._results_mode.get() == "file" else "Results folder"
             errors.append(f"{label} is required.")
         if not self._output_dir.get():
-            label = "Output file" if self._audio_mode.get() == "file" else "Output folder"
+            label = "Output file" if self._output_is_file else "Output folder"
             errors.append(f"{label} is required.")
         if errors:
             messagebox.showerror("Missing inputs", "\n".join(errors))

@@ -110,19 +110,20 @@ def _process_recordings(
         recorder_rel = ident_path.parent
 
         ext = f".{cfg.output_format}"
-        if cfg.join_mode == "recorder":
+        if out_file_override is not None:
+            # Single explicit output file path; join mode is irrelevant.
+            key = ident
+            out_path = out_file_override
+        elif cfg.join_mode == "recorder":
             key = str(recorder_rel)
             out_path = out_root / recorder_rel / f"positives{ext}"
         elif cfg.join_mode == "all":
+            # out_root is the single output file path itself.
             key = ""
-            out_path = out_root / f"positives{ext}"
+            out_path = out_root
         else:  # "file"
             key = ident
-            out_path = (
-                out_file_override
-                if out_file_override is not None
-                else out_root / ident_path.parent / f"{ident_path.name}_positives{ext}"
-            )
+            out_path = out_root / ident_path.parent / f"{ident_path.name}_positives{ext}"
 
         group_outpath.setdefault(key, out_path)
 
@@ -195,8 +196,11 @@ def extract_positives(
 
     Output join_mode (set via cfg):
       "file"     – one output file per input recording  (default)
+                   output_dir is a folder
       "recorder" – one output file per recorder subdirectory
+                   output_dir is a folder
       "all"      – single file combining everything
+                   output_dir is that file's path
     """
     results_path = Path(results_dir)
     audio_path = Path(audio_dir)
