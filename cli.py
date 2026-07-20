@@ -61,6 +61,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--frame-select", choices=["top", "random"], default="top",
         help=HINTS["frame_select"],
     )
+    p.add_argument("--workers", type=int, default=4, help=HINTS["workers"])
     return p
 
 
@@ -84,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         audio_format=args.audio_format,
         frame_select=args.frame_select if args.frame_n is not None else None,
         frame_n=args.frame_n,
+        workers=args.workers,
     )
 
     audio = Path(args.audio)

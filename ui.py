@@ -149,6 +149,7 @@ class App(tk.Tk):
         self._audio_format = tk.StringVar(value=DEFAULT_AUDIO_FORMAT)
         self._buffer     = tk.StringVar(value="0.25")
         self._deadtime    = tk.StringVar(value="0.1")
+        self._workers     = tk.StringVar(value="4")
         self._join_mode      = tk.StringVar(value="file")
         self._output_format  = tk.StringVar(value="flac")
         self._limit_frames   = tk.BooleanVar(value=False)
@@ -177,6 +178,7 @@ class App(tk.Tk):
             "audio_format":  self._audio_format.get(),
             "buffer":        self._buffer.get(),
             "deadtime":      self._deadtime.get(),
+            "workers":       self._workers.get(),
             "join_mode":     self._join_mode.get(),
             "output_format": self._output_format.get(),
             "limit_frames":  self._limit_frames.get(),
@@ -200,6 +202,7 @@ class App(tk.Tk):
                 f"threshold: {self._threshold.get()}",
                 f"buffer:    {self._buffer.get()}",
                 f"deadtime:  {self._deadtime.get()}",
+                f"workers:   {self._workers.get()}",
                 f"join_mode: {self._join_mode.get()}",
                 f"format:    {self._output_format.get()}",
                 f"audio fmt: {self._audio_format.get()}",
@@ -236,6 +239,7 @@ class App(tk.Tk):
         self._audio_format.set(data.get("audio_format", DEFAULT_AUDIO_FORMAT))
         self._buffer.set(data.get("buffer", "0.25"))
         self._deadtime.set(data.get("deadtime", "0.1"))
+        self._workers.set(data.get("workers", "4"))
         self._join_mode.set(data.get("join_mode", "file"))
         self._output_format.set(data.get("output_format", "flac"))
         self._limit_frames.set(data.get("limit_frames", False))
@@ -300,6 +304,7 @@ class App(tk.Tk):
         param("Threshold",     self._threshold, "threshold", 0)
         param("Buffer (s)",    self._buffer,    "buffer",    1)
         param("Dead time (s)", self._deadtime,  "deadtime",  2)
+        param("Workers",       self._workers,   "workers",   3)
 
         time_frame = ttk.Frame(f)
         time_frame.grid(row=5, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 4))
@@ -648,6 +653,12 @@ class App(tk.Tk):
                 date_filter = None
             buffer   = _parse_float(self._buffer.get(),   "Buffer")
             deadtime = _parse_float(self._deadtime.get(), "Dead time")
+            try:
+                workers = int(self._workers.get().strip())
+                if workers < 1:
+                    raise ValueError()
+            except Exception:
+                raise ValueError("Workers must be a positive integer")
             if self._limit_frames.get():
                 try:
                     frame_n = int(self._frame_n.get().strip())
@@ -691,6 +702,7 @@ class App(tk.Tk):
                         audio_format=self._audio_format.get().strip() or DEFAULT_AUDIO_FORMAT,
                         frame_select=frame_select,
                         frame_n=frame_n,
+                        workers=workers,
                     ),
                 )
             except Exception as exc:

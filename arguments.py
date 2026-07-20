@@ -47,4 +47,10 @@ HINTS: dict[str, str] = {
         "When limiting frames, which to keep: 'top' (highest score) or "
         "'random'."
     ),
+    "workers": (
+        "Number of recordings to read concurrently. Reads are I/O-bound "
+        "(seeking within audio files), so raising this can speed up "
+        "extraction from slow storage; each recording's own segments are "
+        "still read in order."
+    ),
 }
