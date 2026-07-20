@@ -1,6 +1,8 @@
 # extract-positives
 
-A little helper tool to extract the audio corresponding to positives in [buzzdetect](https://github.com/OSU-Bee-Lab/buzzdetect) results. It's a little ugly, but she runs!
+A little utility to extract the audio corresponding to positives in [buzzdetect](https://github.com/OSU-Bee-Lab/buzzdetect) results. It's a little ugly, but she runs!
+
+This is one of my personal tools; I'll be keeping the repo up-to-date, but can't promise much in the way of documentation or stability.
 
 ## Requirements
 
@@ -28,11 +30,11 @@ Point it at your audio folder or file, the corresponding buzzdetect folder or re
 
 A number of settings can filter your extractions:
 
-- Use the buffer to add context on either side of each frame (it can be hard to recognize the sound in a short frame without hearing what comes before and after)
+- Use the buffer to add context (that is, audio in addition to the positive frame) on either side of each frame. It can be hard to recognize sounds without hearing what comes before and after.
 
-- Filter by time of day and/or by date to focus in on interesting (or suspicious) spikes in detections
+- Filter by time of day and/or by date to focus in on interesting (or suspicious) trends in detections
 
-- Extract a random subset of frames or the highest-activation frames to get a smaller snapshot
+- Extract a random subset of frames or the highest-activation frames to get a smaller snapshot of a large project
 
 ### CLI
 
