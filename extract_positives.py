@@ -75,9 +75,10 @@ def _in_window(t: time, time_from: time, time_to: time) -> bool:
     return t >= time_from or t < time_to
 
 
-# Rough bitrate assumption for size estimation of lossy formats (soundfile's
-# libsndfile-backed mp3 encoder defaults to ~128 kbps CBR).
-_MP3_BITRATE_BPS = 128_000
+# Rough bitrate assumption for size estimation of lossy formats. Measured
+# empirically: libsndfile's libmp3lame-backed encoder writes mono 44.1kHz
+# output at ~70 kbps, not the commonly-assumed 128 kbps CBR.
+_MP3_BITRATE_BPS = 70_000
 # FLAC is lossless but variable; ~0.6x of PCM16 is a reasonable ballpark for
 # speech/field-recording content.
 _FLAC_RATIO = 0.6
