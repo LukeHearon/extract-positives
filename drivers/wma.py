@@ -206,7 +206,17 @@ class Driver:
             # No container seek: decode-forward-and-discard from the live
             # decoder. Required fast path for sequential seek-per-chunk
             # access patterns (the common case) -- see _container_seek_count.
-            self._consume(sample_index - self._position)
+            # Chunked rather than one _consume() call for the whole gap:
+            # _ensure_buffer decodes the entire requested span into a single
+            # buffer before any of it is discarded, so an unchunked forward
+            # seek deep into a long file (e.g. the first seek in a file,
+            # from position 0 straight to a detection near the end) briefly
+            # materializes the whole skipped span as decoded float32 PCM.
+            remaining = sample_index - self._position
+            chunk = self.samplerate * 30
+            while remaining > 0 and not self._eof:
+                self._consume(min(remaining, chunk))
+                remaining = sample_index - self._position
             return
         self._seek_backward(sample_index)
 

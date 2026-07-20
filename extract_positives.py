@@ -1,8 +1,8 @@
 import soundfile as sf
 import pandas as pd
 import numpy as np
-from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict, deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -292,11 +292,27 @@ def _process_recordings(
 
     try:
         with ThreadPoolExecutor(max_workers=cfg.workers) as pool:
-            # map preserves plan order for the writer below while letting the
-            # pool run several files' reads concurrently in the background.
-            for (ident, mp3_path, segments, key, out_path), (clips, logs, channels) in zip(
-                plans, pool.map(read_clips, plans)
-            ):
+            # Keep only `workers` reads in flight at a time. pool.map() would
+            # submit every plan up front, letting completed-but-unconsumed
+            # clips pile up in memory for however many recordings are ahead
+            # of the slowest one -- unbounded for a large batch. Submitting
+            # lazily as each result is consumed keeps memory bounded instead.
+            plan_iter = iter(plans)
+            pending: deque[tuple[tuple, Future]] = deque()
+
+            def _submit_next() -> None:
+                plan = next(plan_iter, None)
+                if plan is not None:
+                    pending.append((plan, pool.submit(read_clips, plan)))
+
+            for _ in range(cfg.workers):
+                _submit_next()
+
+            while pending:
+                (ident, mp3_path, segments, key, out_path), fut = pending.popleft()
+                _submit_next()
+                clips, logs, channels = fut.result()
+
                 for log in logs:
                     print(log)
                 if clips:
