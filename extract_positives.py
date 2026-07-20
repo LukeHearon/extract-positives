@@ -138,8 +138,8 @@ def _plan_recording(
     frames_df: pd.DataFrame,
     file_dt: datetime,
     cfg: Config,
-) -> list[tuple[float, float]] | None:
-    """Apply time/frame filters and return merged (start, end) segments, or None if empty."""
+) -> tuple[list[tuple[float, float]], int] | None:
+    """Apply time/frame filters and return (merged segments, frame count), or None if empty."""
 
     def frame_matches(offset: float, _dt=file_dt) -> bool:
         detection_dt = _dt + timedelta(seconds=float(offset))
@@ -163,7 +163,7 @@ def _plan_recording(
         else:
             window_df = window_df.nlargest(cfg.frame_n, "activation_ins_buzz")
 
-    return _merge_segments(sorted(window_df["start"].tolist()))
+    return _merge_segments(sorted(window_df["start"].tolist())), len(window_df)
 
 
 def _group_key_and_path(
@@ -200,13 +200,15 @@ def _process_recordings(
     group_channels: dict[str, int] = {}
     group_outpath: dict[str, Path] = {}
     total_segments = 0
+    total_frames = 0
 
     for ident, mp3_path, frames_df, file_dt in recordings:
         print(f"\n{ident}")
-        segments = _plan_recording(ident, frames_df, file_dt, cfg)
-        if not segments:
+        plan = _plan_recording(ident, frames_df, file_dt, cfg)
+        if not plan:
             print("  none in time window")
             continue
+        segments, frame_count = plan
 
         key, out_path = _group_key_and_path(ident, out_root, cfg, out_file_override)
         group_outpath.setdefault(key, out_path)
@@ -220,8 +222,9 @@ def _process_recordings(
         group_channels.setdefault(key, channels)
 
         total_segments += len(segments)
+        total_frames += frame_count
         file_size = _estimate_bytes(seg_seconds, channels, cfg.output_format)
-        print(f"  {len(segments)} segment(s), ~{_human_size(file_size)} ({seg_seconds:.1f}s)")
+        print(f"  {frame_count} frame(s), {len(segments)} segment(s), ~{_human_size(file_size)} ({seg_seconds:.1f}s)")
 
         plans.append((ident, mp3_path, segments, key, out_path))
 
@@ -236,7 +239,7 @@ def _process_recordings(
         total_bytes += size
         print(f"  {_rel_display(group_outpath[key], out_root)}: ~{_human_size(size)} ({seconds:.1f}s)")
 
-    print(f"\nTotal: ~{_human_size(total_bytes)}, {total_segments} segment(s) across {len(group_seconds)} output file(s)")
+    print(f"\nTotal: ~{_human_size(total_bytes)}, {total_frames} frame(s), {total_segments} segment(s) across {len(group_seconds)} output file(s)")
 
     if not confirm("Proceed with extraction?"):
         print("Aborted.")
