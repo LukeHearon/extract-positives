@@ -124,26 +124,6 @@ class _LogStream:
         pass
 
 
-class _Confirm:
-    """Bridges a confirm(prompt) -> bool call from a worker thread to a
-    messagebox shown on the Tk main thread, blocking the worker until answered."""
-
-    def __init__(self, root: tk.Tk) -> None:
-        self._root = root
-
-    def __call__(self, prompt: str) -> bool:
-        event = threading.Event()
-        result: list[bool] = [False]
-
-        def ask():
-            result[0] = messagebox.askyesno("Confirm extraction", prompt)
-            event.set()
-
-        self._root.after(0, ask)
-        event.wait()
-        return result[0]
-
-
 # ── main window ──────────────────────────────────────────────────────────────
 
 class App(tk.Tk):
@@ -495,15 +475,29 @@ class App(tk.Tk):
         self._output_dir.trace_add("write", self._sync_format_from_path)
         self._output_format.trace_add("write", self._sync_path_from_format)
 
-        self._run_btn = ttk.Button(f, text="Run", command=self._run)
-        self._run_btn.grid(row=12, column=0, columnspan=3, pady=(0, 8))
+        self._check_size = tk.BooleanVar(value=True)
+        self._check_size_cb = ttk.Checkbutton(
+            f, text="Check output size before running", variable=self._check_size,
+            command=self._sync_run_button_idle,
+        )
+        self._check_size_cb.grid(row=12, column=0, columnspan=3, pady=(0, 2))
+
+        self._running = False
+        run_row = ttk.Frame(f)
+        run_row.grid(row=13, column=0, columnspan=3, pady=(0, 8))
+        self._run_btn = ttk.Button(run_row, command=self._run)
+        self._run_btn.pack(side="left", padx=(0, 6))
+        self._cancel_btn = ttk.Button(run_row, text="Cancel", command=self._confirm_cancel)
+        self._cancel_btn.pack(side="left")
+        self._cancel_btn.pack_forget()
+        self._sync_run_button_idle()
 
         self._log = scrolledtext.ScrolledText(
             f, width=80, height=18, state="disabled",
             font=("Menlo", 11), bg="#1e1e1e", fg="#d4d4d4",
             insertbackground="white",
         )
-        self._log.grid(row=13, column=0, columnspan=3, sticky="nsew")
+        self._log.grid(row=14, column=0, columnspan=3, sticky="nsew")
 
     def _audio_row(self, parent, row: int) -> None:
         pad = {"padx": 4, "pady": 3}
@@ -696,7 +690,10 @@ class App(tk.Tk):
 
         self._save_cache()
         self._save_run_config()
-        self._run_btn.configure(state="disabled")
+        self._running = True
+        self._check_size_cb.configure(state="disabled")
+        busy_text = "Checking…" if self._check_size.get() else "Running…"
+        self._run_btn.configure(text=busy_text, state="disabled")
         self._clear_log()
 
         def worker():
@@ -709,7 +706,7 @@ class App(tk.Tk):
                     output_dir=self._output_dir.get().strip(),
                     audio_is_file=self._audio_mode.get() == "file",
                     results_is_file=self._results_mode.get() == "file",
-                    confirm=_Confirm(self),
+                    confirm=self._await_confirm,
                     cfg=Config(
                         threshold=threshold,
                         buffer=buffer,
@@ -730,9 +727,57 @@ class App(tk.Tk):
                 print(f"\nERROR: {exc}")
             finally:
                 sys.stdout = old_stdout
-                self.after(0, lambda: self._run_btn.configure(state="normal"))
+                self.after(0, self._on_run_finished)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _on_run_finished(self) -> None:
+        self._running = False
+        self._check_size_cb.configure(state="normal")
+        self._sync_run_button_idle()
+
+    def _sync_run_button_idle(self) -> None:
+        """Reset the run button to its resting state (not mid-run)."""
+        if self._running:
+            return
+        text = "Check" if self._check_size.get() else "Run"
+        self._run_btn.configure(text=text, state="normal", command=self._run)
+
+    def _await_confirm(self, prompt: str) -> bool:
+        """Called from the worker thread once the size estimate is printed.
+
+        With the size check enabled, this blocks the worker and turns the
+        button into a "Run" button (with a "Cancel" alongside it) that the
+        user must click to proceed or abort. With it disabled, extraction
+        proceeds immediately without a pause.
+        """
+        if not self._check_size.get():
+            return True
+        event = threading.Event()
+        result = [False]
+        self._pending_confirm_event = event
+        self._pending_confirm_result = result
+        self.after(0, self._show_run_confirm)
+        event.wait()
+        return result[0]
+
+    def _show_run_confirm(self) -> None:
+        self._run_btn.configure(text="Run", state="normal", command=self._confirm_run)
+        self._cancel_btn.configure(state="normal", command=self._confirm_cancel)
+        self._cancel_btn.pack(side="left")
+
+    def _confirm_run(self) -> None:
+        self._resolve_confirm(True)
+
+    def _confirm_cancel(self) -> None:
+        self._resolve_confirm(False)
+
+    def _resolve_confirm(self, proceed: bool) -> None:
+        self._pending_confirm_result[0] = proceed
+        self._cancel_btn.pack_forget()
+        text = "Running…" if proceed else "Cancelling…"
+        self._run_btn.configure(text=text, state="disabled")
+        self._pending_confirm_event.set()
 
     def _clear_log(self) -> None:
         self._log.configure(state="normal")
