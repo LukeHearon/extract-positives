@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 
 SAMPLERATE = 44100
@@ -91,6 +91,14 @@ def _human_size(n_bytes: float) -> str:
     return f"{n_bytes:.1f} GB"
 
 
+def _rel_display(path: Path, root: Path) -> str:
+    try:
+        rel = path.relative_to(root)
+        return str(rel) if str(rel) != "." else path.name
+    except ValueError:
+        return str(path)
+
+
 def _estimate_bytes(total_seconds: float, channels: int, fmt: str) -> float:
     pcm16_bytes = total_seconds * SAMPLERATE * channels * 2
     if fmt == "wav":
@@ -100,6 +108,10 @@ def _estimate_bytes(total_seconds: float, channels: int, fmt: str) -> float:
     if fmt == "mp3":
         return total_seconds * (_MP3_BITRATE_BPS / 8) * channels
     return pcm16_bytes
+
+
+def _confirm_stdin(prompt: str) -> bool:
+    return input(f"{prompt} [y/N] ").strip().lower() in ("y", "yes")
 
 
 def _merge_segments(starts: list[float]) -> list[tuple[float, float]]:
@@ -177,6 +189,7 @@ def _process_recordings(
     out_root: Path,
     cfg: Config,
     out_file_override: Path | None = None,
+    confirm: Callable[[str], bool] = _confirm_stdin,
 ) -> None:
     # First pass: apply filters and compute segments per recording without
     # touching audio, so we can preview output size and group durations
@@ -185,6 +198,7 @@ def _process_recordings(
     group_seconds: dict[str, float] = defaultdict(float)
     group_channels: dict[str, int] = {}
     group_outpath: dict[str, Path] = {}
+    total_segments = 0
 
     for ident, mp3_path, frames_df, file_dt in recordings:
         print(f"\n{ident}")
@@ -192,18 +206,21 @@ def _process_recordings(
         if not segments:
             print("  none in time window")
             continue
-        print(f"  {len(segments)} segment(s)")
 
         key, out_path = _group_key_and_path(ident, out_root, cfg, out_file_override)
         group_outpath.setdefault(key, out_path)
 
         seg_seconds = sum((e - s) + cfg.buffer * 2 + cfg.deadtime for s, e in segments)
+        try:
+            channels = _open_track(Path(mp3_path)).channels
+        except Exception:
+            channels = 1
         group_seconds[key] += seg_seconds
-        if key not in group_channels:
-            try:
-                group_channels[key] = _open_track(Path(mp3_path)).channels
-            except Exception:
-                group_channels[key] = 1
+        group_channels.setdefault(key, channels)
+
+        total_segments += len(segments)
+        file_size = _estimate_bytes(seg_seconds, channels, cfg.output_format)
+        print(f"  {len(segments)} segment(s), ~{_human_size(file_size)} ({seg_seconds:.1f}s)")
 
         plans.append((ident, mp3_path, segments, key, out_path))
 
@@ -212,9 +229,17 @@ def _process_recordings(
         return
 
     print("\nEstimated output size:")
+    total_bytes = 0.0
     for key, seconds in group_seconds.items():
         size = _estimate_bytes(seconds, group_channels.get(key, 1), cfg.output_format)
-        print(f"  {group_outpath[key]}: ~{_human_size(size)} ({seconds:.1f}s)")
+        total_bytes += size
+        print(f"  {_rel_display(group_outpath[key], out_root)}: ~{_human_size(size)} ({seconds:.1f}s)")
+
+    print(f"\nTotal: ~{_human_size(total_bytes)}, {total_segments} segment(s) across {len(group_seconds)} output file(s)")
+
+    if not confirm("Proceed with extraction?"):
+        print("Aborted.")
+        return
 
     # Second pass: stream clips straight to disk via an open SoundFile writer
     # per output group, instead of buffering every clip in memory.
@@ -279,7 +304,7 @@ def _process_recordings(
                 if cfg.join_mode == "file" and key in writers:
                     writers.pop(key).close()
                     if key in written_keys:
-                        print(f"  Written: {out_path}")
+                        print(f"  Written: {_rel_display(out_path, out_root)}")
     finally:
         for w in writers.values():
             w.close()
@@ -289,7 +314,7 @@ def _process_recordings(
     else:
         if cfg.join_mode != "file":
             for key in written_keys:
-                print(f"Written: {group_outpath[key]}")
+                print(f"Written: {_rel_display(group_outpath[key], out_root)}")
         print("\nDone.")
 
 
@@ -300,6 +325,7 @@ def extract_positives(
     cfg: Config,
     audio_is_file: bool = False,
     results_is_file: bool = False,
+    confirm: Callable[[str], bool] = _confirm_stdin,
 ) -> None:
     """
     Extract detections within a time window and write audio clips.
@@ -322,9 +348,9 @@ def extract_positives(
     out_root = Path(output_dir)
 
     if results_is_file:
-        _extract_from_ident_csv(results_path, audio_path, out_root, cfg, audio_is_file)
+        _extract_from_ident_csv(results_path, audio_path, out_root, cfg, audio_is_file, confirm)
     else:
-        _extract_from_folder(results_path, audio_path, out_root, cfg)
+        _extract_from_folder(results_path, audio_path, out_root, cfg, confirm)
 
 
 def _extract_from_folder(
@@ -332,6 +358,7 @@ def _extract_from_folder(
     audio_path: Path,
     out_root: Path,
     cfg: Config,
+    confirm: Callable[[str], bool] = _confirm_stdin,
 ) -> None:
     csv_files = sorted(
         list(results_path.rglob("*_buzzdetect.csv"))
@@ -373,7 +400,7 @@ def _extract_from_folder(
 
         recordings.append((ident, mp3_path, df[["start", "activation_ins_buzz"]], file_dt))
 
-    _process_recordings(recordings, out_root, cfg)
+    _process_recordings(recordings, out_root, cfg, confirm=confirm)
 
 
 def _extract_from_ident_csv(
@@ -382,9 +409,10 @@ def _extract_from_ident_csv(
     out_root: Path,
     cfg: Config,
     audio_is_file: bool = False,
+    confirm: Callable[[str], bool] = _confirm_stdin,
 ) -> None:
     if audio_is_file:
-        _extract_single_audio_from_csv(csv_file, audio_path, out_root, cfg)
+        _extract_single_audio_from_csv(csv_file, audio_path, out_root, cfg, confirm)
         return
 
     df = pd.read_csv(csv_file, usecols=["ident", "start", "activation_ins_buzz"])
@@ -415,7 +443,7 @@ def _extract_from_ident_csv(
         rows = df[df["ident"] == ident]
         recordings.append((ident, mp3_path, rows[["start", "activation_ins_buzz"]], file_dt))
 
-    _process_recordings(recordings, out_root, cfg)
+    _process_recordings(recordings, out_root, cfg, confirm=confirm)
 
 
 def _extract_single_audio_from_csv(
@@ -423,6 +451,7 @@ def _extract_single_audio_from_csv(
     audio_path: Path,
     out_root: Path,
     cfg: Config,
+    confirm: Callable[[str], bool] = _confirm_stdin,
 ) -> None:
     audio_stem = audio_path.stem
     cols = pd.read_csv(csv_file, nrows=0).columns.tolist()
@@ -453,4 +482,5 @@ def _extract_single_audio_from_csv(
         out_root,
         cfg,
         out_file_override=out_root,
+        confirm=confirm,
     )

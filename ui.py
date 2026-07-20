@@ -124,6 +124,26 @@ class _LogStream:
         pass
 
 
+class _Confirm:
+    """Bridges a confirm(prompt) -> bool call from a worker thread to a
+    messagebox shown on the Tk main thread, blocking the worker until answered."""
+
+    def __init__(self, root: tk.Tk) -> None:
+        self._root = root
+
+    def __call__(self, prompt: str) -> bool:
+        event = threading.Event()
+        result: list[bool] = [False]
+
+        def ask():
+            result[0] = messagebox.askyesno("Confirm extraction", prompt)
+            event.set()
+
+        self._root.after(0, ask)
+        event.wait()
+        return result[0]
+
+
 # ── main window ──────────────────────────────────────────────────────────────
 
 class App(tk.Tk):
@@ -689,6 +709,7 @@ class App(tk.Tk):
                     output_dir=self._output_dir.get().strip(),
                     audio_is_file=self._audio_mode.get() == "file",
                     results_is_file=self._results_mode.get() == "file",
+                    confirm=_Confirm(self),
                     cfg=Config(
                         threshold=threshold,
                         buffer=buffer,
