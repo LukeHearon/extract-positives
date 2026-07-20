@@ -10,6 +10,7 @@ from typing import Literal
 
 SAMPLERATE = 44100
 FRAME_DURATION = 0.96
+DEFAULT_DATETIME_FORMAT = "%y%m%d_%H%M"
 
 JoinMode = Literal["file", "recorder", "all"]
 FrameSelect = Literal["random", "top"]
@@ -27,17 +28,24 @@ class Config:
     date_filter: date | None = None
     frame_select: FrameSelect | None = None
     frame_n: int | None = None
+    datetime_format: str = DEFAULT_DATETIME_FORMAT
 
     @property
     def silence(self) -> np.ndarray:
         return np.zeros(int(self.deadtime * SAMPLERATE))
 
+    @property
+    def needs_datetime(self) -> bool:
+        """Whether any filter actually depends on the recording start datetime."""
+        return self.time_from is not None or self.date_filter is not None
 
-def _parse_file_datetime(stem: str) -> datetime | None:
+
+def _parse_file_datetime(stem: str, fmt: str = DEFAULT_DATETIME_FORMAT) -> datetime | None:
     """Parse the recording start datetime from a stem like YYMMDD_HHMM[_suffix]."""
     try:
         parts = stem.split("_")
-        return datetime.strptime(f"{parts[0]}_{parts[1]}", "%y%m%d_%H%M")
+        n_parts = fmt.count("_") + 1
+        return datetime.strptime("_".join(parts[:n_parts]), fmt)
     except Exception:
         return None
 
@@ -236,10 +244,12 @@ def _extract_from_folder(
         base = "_".join(stem.split("_")[:2])   # e.g. 260430_1142
         ident = str(rel_dir / base)
 
-        file_dt = _parse_file_datetime(stem)
-        if file_dt is None:
-            print(f"\nSkipping {csv_path.name}: cannot parse datetime.")
-            continue
+        file_dt = None
+        if cfg.needs_datetime:
+            file_dt = _parse_file_datetime(stem, cfg.datetime_format)
+            if file_dt is None:
+                print(f"\nSkipping {csv_path.name}: cannot parse datetime.")
+                continue
 
         mp3_path = audio_path if audio_path.is_file() else audio_path / rel_dir / (base + ".mp3")
         if not mp3_path.exists():
@@ -283,10 +293,12 @@ def _extract_from_ident_csv(
     recordings = []
     for ident in idents:
         stem = Path(ident).name
-        file_dt = _parse_file_datetime(stem)
-        if file_dt is None:
-            print(f"\nSkipping {ident}: cannot parse datetime from '{stem}'.")
-            continue
+        file_dt = None
+        if cfg.needs_datetime:
+            file_dt = _parse_file_datetime(stem, cfg.datetime_format)
+            if file_dt is None:
+                print(f"\nSkipping {ident}: cannot parse datetime from '{stem}'.")
+                continue
 
         mp3_path = audio_path / (ident + ".mp3")
         if not mp3_path.exists():
@@ -321,10 +333,12 @@ def _extract_single_audio_from_csv(
         print(f"No detections above threshold for {audio_stem}.")
         return
 
-    file_dt = _parse_file_datetime(audio_stem)
-    if file_dt is None:
-        print(f"Cannot parse datetime from audio filename '{audio_stem}'.")
-        return
+    file_dt = None
+    if cfg.needs_datetime:
+        file_dt = _parse_file_datetime(audio_stem, cfg.datetime_format)
+        if file_dt is None:
+            print(f"Cannot parse datetime from audio filename '{audio_stem}'.")
+            return
 
     print(f"Found {len(df)} detection(s) for {audio_stem}.")
     _process_recordings(

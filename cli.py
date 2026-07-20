@@ -9,7 +9,7 @@ from datetime import date, time
 from pathlib import Path
 
 from arguments import HINTS
-from extract_positives import Config, extract_positives
+from extract_positives import Config, DEFAULT_DATETIME_FORMAT, extract_positives
 
 
 def _parse_time(s: str) -> time:
@@ -50,6 +50,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--time-from", type=_parse_time, help=HINTS["time_from"])
     p.add_argument("--time-to", type=_parse_time, help=HINTS["time_to"])
     p.add_argument("--date", dest="date_filter", type=_parse_date, help=HINTS["date_filter"])
+    p.add_argument(
+        "--datetime-format", default=DEFAULT_DATETIME_FORMAT, help=HINTS["datetime_format"],
+    )
     p.add_argument("--frame-n", type=int, help=HINTS["frame_n"])
     p.add_argument(
         "--frame-select", choices=["top", "random"], default="top",
@@ -74,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         time_from=args.time_from,
         time_to=args.time_to,
         date_filter=args.date_filter,
+        datetime_format=args.datetime_format,
         frame_select=args.frame_select if args.frame_n is not None else None,
         frame_n=args.frame_n,
     )

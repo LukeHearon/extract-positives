@@ -33,6 +33,10 @@ HINTS: dict[str, str] = {
     ),
     "time_to": "End of the detection time window (HH:MM). See --time-from.",
     "date_filter": "Keep only detections on this date (YYYY-MM-DD).",
+    "datetime_format": (
+        "strptime format used to parse the recording start datetime from "
+        "filenames (default: %y%m%d_%H%M). Only used when filtering by time or date."
+    ),
     "frame_n": "Cap the number of detection frames kept per recording.",
     "frame_select": (
         "When limiting frames, which to keep: 'top' (highest score) or "

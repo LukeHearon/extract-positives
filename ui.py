@@ -7,7 +7,7 @@ from datetime import date, time
 from pathlib import Path
 
 from arguments import HINTS
-from extract_positives import Config, extract_positives
+from extract_positives import Config, DEFAULT_DATETIME_FORMAT, extract_positives
 
 _CACHE_PATH = Path.home() / ".extract_positives_last_run.json"
 
@@ -136,6 +136,7 @@ class App(tk.Tk):
         self._time_to     = tk.StringVar(value="05:00")
         self._filter_date = tk.BooleanVar(value=False)
         self._date_filter = tk.StringVar(value="")
+        self._datetime_format = tk.StringVar(value=DEFAULT_DATETIME_FORMAT)
         self._buffer     = tk.StringVar(value="0.25")
         self._deadtime    = tk.StringVar(value="0.1")
         self._join_mode      = tk.StringVar(value="file")
@@ -162,6 +163,7 @@ class App(tk.Tk):
             "time_to":       self._time_to.get(),
             "filter_date":   self._filter_date.get(),
             "date_filter":   self._date_filter.get(),
+            "datetime_format": self._datetime_format.get(),
             "buffer":        self._buffer.get(),
             "deadtime":      self._deadtime.get(),
             "join_mode":     self._join_mode.get(),
@@ -194,6 +196,8 @@ class App(tk.Tk):
                 lines.append(f"time:      {self._time_from.get()} – {self._time_to.get()}")
             if self._filter_date.get():
                 lines.append(f"date:      {self._date_filter.get()}")
+            if self._filter_time.get() or self._filter_date.get():
+                lines.append(f"dt format: {self._datetime_format.get()}")
             if self._limit_frames.get():
                 lines.append(f"frames:    {self._frame_select.get()} {self._frame_n.get()}")
             (config_dir / "config.txt").write_text("\n".join(lines) + "\n")
@@ -216,6 +220,7 @@ class App(tk.Tk):
         self._time_to.set(data.get("time_to", "05:00"))
         self._filter_date.set(data.get("filter_date", False))
         self._date_filter.set(data.get("date_filter", ""))
+        self._datetime_format.set(data.get("datetime_format", DEFAULT_DATETIME_FORMAT))
         self._buffer.set(data.get("buffer", "0.25"))
         self._deadtime.set(data.get("deadtime", "0.1"))
         self._join_mode.set(data.get("join_mode", "file"))
@@ -326,8 +331,26 @@ class App(tk.Tk):
         self._filter_date.trace_add("write", _sync_date_filter)
         _sync_date_filter()
 
+        dtfmt_frame = ttk.Frame(f)
+        dtfmt_frame.grid(row=7, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 4))
+
+        ttk.Label(dtfmt_frame, text="Filename datetime format").pack(side="left")
+        _hint(dtfmt_frame, "datetime_format").pack(side="left", padx=(4, 10))
+        self._datetime_format_entry = ttk.Entry(
+            dtfmt_frame, textvariable=self._datetime_format, width=16
+        )
+        self._datetime_format_entry.pack(side="left")
+
+        def _sync_datetime_format(*_):
+            state = "normal" if (self._filter_time.get() or self._filter_date.get()) else "disabled"
+            self._datetime_format_entry.configure(state=state)
+
+        self._filter_time.trace_add("write", _sync_datetime_format)
+        self._filter_date.trace_add("write", _sync_datetime_format)
+        _sync_datetime_format()
+
         frame_limit_frame = ttk.Frame(f)
-        frame_limit_frame.grid(row=7, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 4))
+        frame_limit_frame.grid(row=8, column=0, columnspan=3, sticky="w", padx=4, pady=(0, 4))
 
         ttk.Checkbutton(
             frame_limit_frame, text="Limit frames", variable=self._limit_frames
@@ -357,11 +380,11 @@ class App(tk.Tk):
         _sync_frame_limit()
 
         ttk.Separator(f, orient="horizontal").grid(
-            row=8, column=0, columnspan=3, sticky="ew", pady=8
+            row=9, column=0, columnspan=3, sticky="ew", pady=8
         )
 
         join_frame = ttk.Frame(f)
-        join_frame.grid(row=9, column=0, columnspan=3, pady=(0, 6))
+        join_frame.grid(row=10, column=0, columnspan=3, pady=(0, 6))
         ttk.Label(join_frame, text="Join output:").pack(side="left", padx=(0, 4))
         _hint(join_frame, "join_mode").pack(side="left", padx=(0, 10))
         self._join_btns: list[ttk.Radiobutton] = []
@@ -408,7 +431,7 @@ class App(tk.Tk):
         self._audio_mode.trace_add("write", _sync_audio_file_mode)
 
         fmt_frame = ttk.Frame(f)
-        fmt_frame.grid(row=10, column=0, columnspan=3, pady=(0, 6))
+        fmt_frame.grid(row=11, column=0, columnspan=3, pady=(0, 6))
         ttk.Label(fmt_frame, text="Output format:").pack(side="left", padx=(0, 4))
         _hint(fmt_frame, "output_format").pack(side="left", padx=(0, 10))
         for label, value in [("FLAC", "flac"), ("MP3", "mp3"), ("WAV", "wav")]:
@@ -420,14 +443,14 @@ class App(tk.Tk):
         self._output_format.trace_add("write", self._sync_path_from_format)
 
         self._run_btn = ttk.Button(f, text="Run", command=self._run)
-        self._run_btn.grid(row=11, column=0, columnspan=3, pady=(0, 8))
+        self._run_btn.grid(row=12, column=0, columnspan=3, pady=(0, 8))
 
         self._log = scrolledtext.ScrolledText(
             f, width=80, height=18, state="disabled",
             font=("Menlo", 11), bg="#1e1e1e", fg="#d4d4d4",
             insertbackground="white",
         )
-        self._log.grid(row=12, column=0, columnspan=3, sticky="nsew")
+        self._log.grid(row=13, column=0, columnspan=3, sticky="nsew")
 
     def _audio_row(self, parent, row: int) -> None:
         pad = {"padx": 4, "pady": 3}
@@ -628,6 +651,7 @@ class App(tk.Tk):
                         time_from=time_from,
                         time_to=time_to,
                         date_filter=date_filter,
+                        datetime_format=self._datetime_format.get().strip() or DEFAULT_DATETIME_FORMAT,
                         frame_select=frame_select,
                         frame_n=frame_n,
                     ),
