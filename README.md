@@ -10,6 +10,12 @@ pandas
 numpy
 ```
 
+Optional, only needed for reading `.wma` audio (not decodable by soundfile):
+
+```
+av
+```
+
 ## Usage
 
 ### GUI
@@ -52,6 +58,8 @@ cfg = Config(
     date_filter=None,       # datetime.date or None
     frame_select=None,      # "top" | "random" | None
     frame_n=None,           # int or None
+    datetime_format="%y%m%d_%H%M",  # strptime format for filename stems
+    audio_format="mp3",     # input audio file extension; "wma" is read via PyAV
 )
 
 extract_positives(

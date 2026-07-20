@@ -3,11 +3,20 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from datetime import date, time
+from datetime import date, datetime, time
 from pathlib import Path
 
 from arguments import HINTS
-from extract_positives import Config, DEFAULT_DATETIME_FORMAT, extract_positives
+from extract_positives import (
+    AV_ONLY_FORMATS,
+    Config,
+    DEFAULT_AUDIO_FORMAT,
+    DEFAULT_DATETIME_FORMAT,
+    extract_positives,
+)
+
+_DATETIME_FORMAT_EXAMPLE = datetime(2026, 1, 31, 13, 23)
+_AUDIO_FORMATS = ["mp3", "wav", "flac", "ogg", "wma"]
 
 _CACHE_PATH = Path.home() / ".extract_positives_last_run.json"
 
@@ -137,6 +146,7 @@ class App(tk.Tk):
         self._filter_date = tk.BooleanVar(value=False)
         self._date_filter = tk.StringVar(value="")
         self._datetime_format = tk.StringVar(value=DEFAULT_DATETIME_FORMAT)
+        self._audio_format = tk.StringVar(value=DEFAULT_AUDIO_FORMAT)
         self._buffer     = tk.StringVar(value="0.25")
         self._deadtime    = tk.StringVar(value="0.1")
         self._join_mode      = tk.StringVar(value="file")
@@ -164,6 +174,7 @@ class App(tk.Tk):
             "filter_date":   self._filter_date.get(),
             "date_filter":   self._date_filter.get(),
             "datetime_format": self._datetime_format.get(),
+            "audio_format":  self._audio_format.get(),
             "buffer":        self._buffer.get(),
             "deadtime":      self._deadtime.get(),
             "join_mode":     self._join_mode.get(),
@@ -191,6 +202,7 @@ class App(tk.Tk):
                 f"deadtime:  {self._deadtime.get()}",
                 f"join_mode: {self._join_mode.get()}",
                 f"format:    {self._output_format.get()}",
+                f"audio fmt: {self._audio_format.get()}",
             ]
             if self._filter_time.get():
                 lines.append(f"time:      {self._time_from.get()} – {self._time_to.get()}")
@@ -221,6 +233,7 @@ class App(tk.Tk):
         self._filter_date.set(data.get("filter_date", False))
         self._date_filter.set(data.get("date_filter", ""))
         self._datetime_format.set(data.get("datetime_format", DEFAULT_DATETIME_FORMAT))
+        self._audio_format.set(data.get("audio_format", DEFAULT_AUDIO_FORMAT))
         self._buffer.set(data.get("buffer", "0.25"))
         self._deadtime.set(data.get("deadtime", "0.1"))
         self._join_mode.set(data.get("join_mode", "file"))
@@ -340,6 +353,21 @@ class App(tk.Tk):
             dtfmt_frame, textvariable=self._datetime_format, width=16
         )
         self._datetime_format_entry.pack(side="left")
+
+        self._datetime_format_preview = ttk.Label(dtfmt_frame, foreground="#606060")
+        self._datetime_format_preview.pack(side="left", padx=(10, 0))
+
+        def _sync_datetime_format_preview(*_):
+            try:
+                example = _DATETIME_FORMAT_EXAMPLE.strftime(self._datetime_format.get())
+                text = f"E.g.: January 31 2026 1:23PM → {example}.{self._audio_format.get()}"
+            except Exception:
+                text = "invalid format"
+            self._datetime_format_preview.configure(text=text)
+
+        self._datetime_format.trace_add("write", _sync_datetime_format_preview)
+        self._audio_format.trace_add("write", _sync_datetime_format_preview)
+        _sync_datetime_format_preview()
 
         def _sync_datetime_format(*_):
             state = "normal" if (self._filter_time.get() or self._filter_date.get()) else "disabled"
@@ -467,7 +495,7 @@ class App(tk.Tk):
         def browse():
             if self._audio_mode.get() == "file":
                 path = filedialog.askopenfilename(
-                    filetypes=[("Audio files", "*.mp3 *.wav *.flac"), ("All files", "*.*")]
+                    filetypes=[("Audio files", "*.mp3 *.wav *.flac *.ogg *.wma"), ("All files", "*.*")]
                 )
             else:
                 path = filedialog.askdirectory()
@@ -484,6 +512,14 @@ class App(tk.Tk):
         ).pack(side="left")
         ttk.Radiobutton(
             toggle_frame, text="File", variable=self._audio_mode, value="file"
+        ).pack(side="left")
+
+        fmt_frame = ttk.Frame(btn_frame)
+        fmt_frame.pack(side="left", padx=(10, 0))
+        ttk.Label(fmt_frame, text="Filetype").pack(side="left", padx=(0, 4))
+        ttk.Combobox(
+            fmt_frame, textvariable=self._audio_format, values=_AUDIO_FORMATS,
+            width=6, state="readonly",
         ).pack(side="left")
 
         _hint(parent, "audio").grid(row=row, column=3, sticky="w", **pad)
@@ -652,6 +688,7 @@ class App(tk.Tk):
                         time_to=time_to,
                         date_filter=date_filter,
                         datetime_format=self._datetime_format.get().strip() or DEFAULT_DATETIME_FORMAT,
+                        audio_format=self._audio_format.get().strip() or DEFAULT_AUDIO_FORMAT,
                         frame_select=frame_select,
                         frame_n=frame_n,
                     ),

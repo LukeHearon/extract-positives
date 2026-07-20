@@ -37,6 +37,11 @@ HINTS: dict[str, str] = {
         "strptime format used to parse the recording start datetime from "
         "filenames (default: %y%m%d_%H%M). Only used when filtering by time or date."
     ),
+    "audio_format": (
+        "File extension of the input audio recordings (e.g. mp3, wav, wma). "
+        "Used to locate audio files when results are a folder or an ident CSV. "
+        "wma is decoded via PyAV since soundfile can't read it."
+    ),
     "frame_n": "Cap the number of detection frames kept per recording.",
     "frame_select": (
         "When limiting frames, which to keep: 'top' (highest score) or "

@@ -11,6 +11,9 @@ from typing import Literal
 SAMPLERATE = 44100
 FRAME_DURATION = 0.96
 DEFAULT_DATETIME_FORMAT = "%y%m%d_%H%M"
+DEFAULT_AUDIO_FORMAT = "mp3"
+# Extensions soundfile (libsndfile) can't decode; these are read via PyAV instead.
+AV_ONLY_FORMATS = {"wma"}
 
 JoinMode = Literal["file", "recorder", "all"]
 FrameSelect = Literal["random", "top"]
@@ -29,6 +32,7 @@ class Config:
     frame_select: FrameSelect | None = None
     frame_n: int | None = None
     datetime_format: str = DEFAULT_DATETIME_FORMAT
+    audio_format: str = DEFAULT_AUDIO_FORMAT
 
     @property
     def silence(self) -> np.ndarray:
@@ -48,6 +52,19 @@ def _parse_file_datetime(stem: str, fmt: str = DEFAULT_DATETIME_FORMAT) -> datet
         return datetime.strptime("_".join(parts[:n_parts]), fmt)
     except Exception:
         return None
+
+
+def _open_track(path: Path):
+    """Open an audio file for seek/read, soundfile.SoundFile-alike.
+
+    libsndfile (soundfile's backend) can't decode WMA/ASF; those go through
+    the PyAV-based driver in drivers/wma.py instead.
+    """
+    if path.suffix.lower().lstrip(".") in AV_ONLY_FORMATS:
+        from drivers.wma import Driver
+
+        return Driver(str(path))
+    return sf.SoundFile(str(path))
 
 
 def _in_window(t: time, time_from: time, time_to: time) -> bool:
@@ -136,7 +153,7 @@ def _process_recordings(
         group_outpath.setdefault(key, out_path)
 
         try:
-            track = sf.SoundFile(str(mp3_path))
+            track = _open_track(Path(mp3_path))
         except Exception as e:
             print(f"  cannot open audio: {e}")
             continue
@@ -251,7 +268,7 @@ def _extract_from_folder(
                 print(f"\nSkipping {csv_path.name}: cannot parse datetime.")
                 continue
 
-        mp3_path = audio_path if audio_path.is_file() else audio_path / rel_dir / (base + ".mp3")
+        mp3_path = audio_path if audio_path.is_file() else audio_path / rel_dir / f"{base}.{cfg.audio_format}"
         if not mp3_path.exists():
             print(f"\nSkipping {csv_path.name}: audio not found at {mp3_path}")
             continue
@@ -300,7 +317,7 @@ def _extract_from_ident_csv(
                 print(f"\nSkipping {ident}: cannot parse datetime from '{stem}'.")
                 continue
 
-        mp3_path = audio_path / (ident + ".mp3")
+        mp3_path = audio_path / f"{ident}.{cfg.audio_format}"
         if not mp3_path.exists():
             print(f"\nSkipping {ident}: audio not found at {mp3_path}")
             continue

@@ -9,7 +9,7 @@ from datetime import date, time
 from pathlib import Path
 
 from arguments import HINTS
-from extract_positives import Config, DEFAULT_DATETIME_FORMAT, extract_positives
+from extract_positives import Config, DEFAULT_AUDIO_FORMAT, DEFAULT_DATETIME_FORMAT, extract_positives
 
 
 def _parse_time(s: str) -> time:
@@ -47,6 +47,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output-format", choices=["flac", "mp3", "wav"], default="flac",
         help=HINTS["output_format"],
     )
+    p.add_argument(
+        "--audio-format", default=DEFAULT_AUDIO_FORMAT, help=HINTS["audio_format"],
+    )
     p.add_argument("--time-from", type=_parse_time, help=HINTS["time_from"])
     p.add_argument("--time-to", type=_parse_time, help=HINTS["time_to"])
     p.add_argument("--date", dest="date_filter", type=_parse_date, help=HINTS["date_filter"])
@@ -78,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
         time_to=args.time_to,
         date_filter=args.date_filter,
         datetime_format=args.datetime_format,
+        audio_format=args.audio_format,
         frame_select=args.frame_select if args.frame_n is not None else None,
         frame_n=args.frame_n,
     )
